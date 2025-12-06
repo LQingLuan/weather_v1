@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>天气查询</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/weather-icons/2.0.10/css/weather-icons.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-content">
+                <h1><i class="fas fa-cloud-sun"></i> 天气查询</h1>
+                <p class="subtitle">实时天气数据与7天预报</p>
+            </div>
+        </header>
+
+        <main>
+            {% block content %}{% endblock %}
+        </main>
+
+        <footer>
+            <p>
+                <i class="fas fa-database"></i> 数据来源: <a href="https://open-meteo.com/" target="_blank">Open-Meteo API</a> |
+                <i class="fas fa-map-marker-alt"></i> 支持多城市查询
+            </p>
+            <p class="update-time">
+                <i class="fas fa-sync-alt"></i> 最后更新: {{ now.strftime('%Y-%m-%d %H:%M:%S') if now else '' }}
+            </p>
+        </footer>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <script>
+        // 设置当前时间
+        function updateTime() {
+            const now = new Date();
+            const timeString = now.toLocaleString('zh-CN', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false
+            });
+
+            $('.update-time').html(`<i class="fas fa-sync-alt"></i> 最后更新: ${timeString}`);
+        }
+
+        // 页面加载时更新时间和每10秒更新一次
+        $(document).ready(function() {
+            updateTime();
+            setInterval(updateTime, 10000);
+
+            // 城市选择切换
+            $('.city-btn').on('click', function() {
+                const cityName = $(this).data('city');
+                updateActiveCity(cityName);
+                loadWeather(cityName);
+            });
+
+            // 刷新天气数据
+            $('#refresh-btn').on('click', function() {
+                const currentCity = $('#current-city').val() || '北京';
+                updateActiveCity(currentCity);
+                loadWeather(currentCity);
+
+                // 添加旋转动画
+                $(this).find('i').addClass('fa-spin');
+                setTimeout(() => {
+                    $(this).find('i').removeClass('fa-spin');
+                }, 1000);
+            });
+
+            // 🔴 新增：折叠原始数据的初始化代码
+            initRawDataToggle();
+        });
+
+        // 🔴 新增：初始化折叠原始数据功能
+        function initRawDataToggle() {
+            // 为折叠按钮绑定点击事件（使用事件委托，处理动态内容）
+            $(document).on('click', '.data-toggle', function() {
+                console.log('data-toggle clicked');
+                $(this).toggleClass('expanded');
+                $(this).next('.data-content').slideToggle(300);
+
+                const icon = $(this).find('.toggle-icon');
+                if ($(this).hasClass('expanded')) {
+                    icon.text('▲');
+                } else {
+                    icon.text('▼');
+                }
+            });
+
+            // 初始隐藏原始数据
+            $('.data-content').hide();
+        }
+
+        // 加载天气数据
+        function loadWeather(cityName) {
+            $.ajax({
+                url: '/weather/' + cityName,
+                method: 'GET',
+                dataType: 'json',
+                beforeSend: function() {
+                    $('.weather-container').addClass('loading');
+                },
+                success: function(data) {
+                    updateWeatherDisplay(data);
+                },
+                error: function() {
+                    alert('获取天气数据失败，请稍后重试');
+                },
+                complete: function() {
+                    $('.weather-container').removeClass('loading');
+                }
+            });
+        }
+
+        // 更新天气显示
+        function updateWeatherDisplay(weatherData) {
+            if (!weatherData) return;
+
+            // 更新城市名称
+            $('.city-name').text(weatherData.city);
+
+            // 更新当前天气
+            const current = weatherData.current;
+            if (current) {
+                $('.current-temp').html(`${Math.round(current.temperature)}<span class="unit">°C</span>`);
+                $('.current-desc').text(getWeatherDescription(current.weathercode));
+                $('.wind-info').text(`${current.windspeed} km/h`);
+
+                // 更新天气图标
+                const isDay = current.is_day;
+                const iconClass = getWeatherIconClass(current.weathercode, isDay);
+                $('.current-weather-icon').removeClass().addClass(`current-weather-icon ${iconClass}`);
+
+                // 更新天气颜色
+                const color = getWeatherColor(current.weathercode);
+                $('.current-weather').css('background', `linear-gradient(135deg, ${color}40, ${color}80)`);
+            }
+
+            // 更新7天预报
+            const daily = weatherData.daily;
+            if (daily && daily.time && daily.time.length > 0) {
+                $('.forecast-list').empty();
+
+                for (let i = 0; i < Math.min(7, daily.time.length); i++) {
+                    const date = formatDate(daily.time[i]);
+                    const maxTemp = Math.round(daily.temperature_2m_max[i]);
+                    const minTemp = Math.round(daily.temperature_2m_min[i]);
+                    const weatherCode = daily.weathercode[i];
+                    const iconClass = getWeatherIconClass(weatherCode, true);
+                    const desc = getWeatherDescription(weatherCode);
+
+                    const forecastItem = `
+                        <div class="forecast-item">
+                            <div class="forecast-date">${date}</div>
+                            <div class="forecast-icon"><i class="${iconClass}"></i></div>
+                            <div class="forecast-desc">${desc}</div>
+                            <div class="forecast-temp">
+                                <span class="temp-max">${maxTemp}°</span>
+                                <span class="temp-min">${minTemp}°</span>
+                            </div>
+                        </div>
+                    `;
+
+                    $('.forecast-list').append(forecastItem);
+                }
+            }
+
+            // 更新平均温度
+            if (weatherData.average_temp) {
+                $('.average-temp').html(`<i class="fas fa-thermometer-half"></i> 7天平均温度: ${Math.round(weatherData.average_temp)}°C`);
+            }
+
+            // 更新原始数据和API链接
+            updateRawDataDisplay(weatherData);
+            updateApiLink(weatherData.city);
+        }
+
+        // 新增函数：更新活动城市按钮状态
+        function updateActiveCity(cityName) {
+            // 移除所有按钮的active类
+            $('.city-btn').removeClass('active');
+
+            // 给指定城市的按钮添加active类
+            const targetButton = $(`.city-btn[data-city="${cityName}"]`);
+            targetButton.addClass('active');
+
+            // 更新当前城市隐藏字段
+            $('#current-city').val(cityName);
+        }
+
+        // 新增函数：更新原始数据展示
+        function updateRawDataDisplay(weatherData) {
+            if (!weatherData) return;
+
+            try {
+                // 1. 格式化JSON数据
+                const formattedJson = JSON.stringify(weatherData, null, 2);
+
+                // 2. 更新JSON显示区域
+                const jsonDisplay = $('.json-display pre');
+                if (jsonDisplay.length > 0) {
+                    jsonDisplay.text(formattedJson);
+                }
+
+            } catch (error) {
+                console.error('更新原始数据失败:', error);
+            }
+        }
+
+        // 新增函数：更新API链接
+        function updateApiLink(cityName) {
+            try {
+                // 1. 获取城市坐标数据
+                const cityBtn = $(`.city-btn[data-city="${cityName}"]`);
+                if (cityBtn.length > 0) {
+                    const lat = cityBtn.data('lat');
+                    const lon = cityBtn.data('lon');
+
+                    if (lat && lon) {
+                        // 2. 构建新的API链接
+                        const apiUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto`;
+
+                        // 3. 更新页面上的API链接
+                        const apiLink = $('.api-info a');
+                        apiLink.attr('href', apiUrl).text(apiUrl);
+                    }
+                } else {
+                    // 如果按钮上没有坐标数据，尝试从预定义的cities对象获取
+                    const cityCoords = getCityCoordinates(cityName);
+                    if (cityCoords) {
+                        const apiUrl = `https://api.open-meteo.com/v1/forecast?latitude=${cityCoords.lat}&longitude=${cityCoords.lon}&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto`;
+                        const apiLink = $('.api-info a');
+                        apiLink.attr('href', apiUrl).text(apiUrl);
+                    }
+                }
+            } catch (error) {
+                console.error('更新API链接失败:', error);
+            }
+        }
+
+        // 辅助函数：获取城市坐标
+        function getCityCoordinates(cityName) {
+            const cities = {
+                "北京": { lat: 39.9042, lon: 116.4074 },
+                "上海": { lat: 31.2304, lon: 121.4737 },
+                "广州": { lat: 23.1291, lon: 113.2644 },
+                "深圳": { lat: 22.5431, lon: 114.0579 },
+                "成都": { lat: 30.5728, lon: 104.0668 },
+                "杭州": { lat: 30.2741, lon: 120.1551 },
+                "西安": { lat: 34.3416, lon: 108.9398 },
+                "武汉": { lat: 30.5928, lon: 114.3055 },
+                "南京": { lat: 32.0603, lon: 118.7969 },
+                "重庆": { lat: 29.5630, lon: 106.5516 }
+            };
+            return cities[cityName];
+        }
+
+        // 辅助函数
+        function getWeatherDescription(weatherCode) {
+            const descriptions = {
+                0: "晴朗", 1: "主要晴朗", 2: "部分多云", 3: "阴天",
+                45: "有雾", 48: "有雾", 51: "小雨", 53: "中雨",
+                55: "大雨", 61: "小雨", 63: "中雨", 65: "大雨",
+                71: "小雪", 73: "中雪", 75: "大雪", 80: "阵雨",
+                81: "强阵雨", 82: "暴雨", 85: "阵雪", 86: "强阵雪",
+                95: "雷暴", 96: "雷暴", 99: "强雷暴"
+            };
+            return descriptions[weatherCode] || "未知天气";
+        }
+
+        function getWeatherIconClass(weatherCode, isDay) {
+            const icons = {
+                0: isDay ? "wi wi-day-sunny" : "wi wi-night-clear",
+                1: isDay ? "wi wi-day-sunny-overcast" : "wi wi-night-alt-partly-cloudy",
+                2: isDay ? "wi wi-day-cloudy" : "wi wi-night-alt-cloudy",
+                3: "wi wi-cloudy",
+                45: "wi wi-fog", 48: "wi wi-fog",
+                51: "wi wi-sprinkle", 53: "wi wi-rain", 55: "wi wi-rain",
+                61: "wi wi-rain", 63: "wi wi-rain", 65: "wi wi-rain",
+                71: "wi wi-snow", 73: "wi wi-snow", 75: "wi wi-snow",
+                80: "wi wi-showers", 81: "wi wi-showers", 82: "wi wi-thunderstorm",
+                85: "wi wi-snow", 86: "wi wi-snow",
+                95: "wi wi-thunderstorm", 96: "wi wi-thunderstorm", 99: "wi wi-thunderstorm"
+            };
+            return icons[weatherCode] || "wi wi-na";
+        }
+
+        function getWeatherColor(weatherCode) {
+            const colors = {
+                0: "#FFD700", 1: "#87CEEB", 2: "#B0C4DE", 3: "#808080",
+                45: "#D3D3D3", 48: "#D3D3D3", 51: "#4682B4", 53: "#4169E1",
+                55: "#00008B", 61: "#4682B4", 63: "#4169E1", 65: "#00008B",
+                71: "#F0F8FF", 73: "#E6E6FA", 75: "#ADD8E6", 80: "#4682B4",
+                81: "#4169E1", 82: "#00008B", 85: "#F0F8FF", 86: "#ADD8E6",
+                95: "#4B0082", 96: "#4B0082", 99: "#191970"
+            };
+            return colors[weatherCode] || "#808080";
+        }
+
+        function formatDate(dateStr) {
+            const date = new Date(dateStr);
+            const today = new Date();
+            const tomorrow = new Date(today);
+            tomorrow.setDate(tomorrow.getDate() + 1);
+
+            if (date.toDateString() === today.toDateString()) {
+                return "今天";
+            } else if (date.toDateString() === tomorrow.toDateString()) {
+                return "明天";
+            } else {
+                const weekdays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+                return `${date.getMonth() + 1}/${date.getDate()} ${weekdays[date.getDay()]}`;
+            }
+        }
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

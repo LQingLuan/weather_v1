@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+
+{% block title %}{{ weather_data.city if weather_data else '北京' }}天气 - 天气查询应用{% endblock %}
+
+{% block content %}
+<div class="weather-app">
+    <!-- 城市选择 -->
+    <div class="city-selector">
+        <h2><i class="fas fa-map-marker-alt"></i> 选择城市</h2>
+        <div class="city-buttons">
+            {% for city_name, coords in cities.items() %}
+                <button class="city-btn {% if current_city == city_name %}active{% endif %}"
+                        data-city="{{ city_name }}"
+                        data-lat="{{ coords.lat }}"
+                        data-lon="{{ coords.lon }}">
+                    {{ city_name }}
+                </button>
+            {% endfor %}
+        </div>
+
+        <div class="refresh-container">
+            <button id="refresh-btn" class="refresh-btn">
+                <i class="fas fa-sync-alt"></i> 刷新数据
+            </button>
+            <input type="hidden" id="current-city" value="{{ current_city }}">
+        </div>
+    </div>
+
+    <!-- 天气展示区域 -->
+    <div class="weather-container">
+        {% if weather_data %}
+            <!-- 当前天气 -->
+            <div class="current-weather" style="background: linear-gradient(135deg, {{ get_weather_color(weather_data.current.weathercode) }}40, {{ get_weather_color(weather_data.current.weathercode) }}80)">
+                <div class="current-header">
+                    <h2 class="city-name">{{ weather_data.city }}</h2>
+                    <div class="current-time">
+                        <i class="fas fa-clock"></i>
+                        {{ weather_data.current.time.split('T')[1][:5] if weather_data.current.time else '--:--' }}
+                    </div>
+                </div>
+
+                <div class="current-main">
+                    <div class="temp-display">
+                        <div class="current-temp">
+                            {{ weather_data.current.temperature|int if weather_data.current.temperature else '--' }}<span class="unit">°C</span>
+                        </div>
+                        <div class="current-desc">
+                            {{ get_weather_description(weather_data.current.weathercode) }}
+                        </div>
+                    </div>
+
+                    <div class="weather-icon">
+                        <i class="current-weather-icon {{ get_weather_icon(weather_data.current.weathercode, weather_data.current.is_day) }}"></i>
+                    </div>
+                </div>
+
+                <div class="current-details">
+                    <div class="detail-item">
+                        <i class="fas fa-temperature-low"></i>
+                        <div>
+                            <div class="label">体感温度</div>
+                            <div class="value">{{ weather_data.current.temperature|int if weather_data.current.temperature else '--' }}°C</div>
+                        </div>
+                    </div>
+
+                    <div class="detail-item">
+                        <i class="fas fa-wind"></i>
+                        <div>
+                            <div class="label">风速</div>
+                            <div class="value wind-info">{{ weather_data.current.windspeed if weather_data.current.windspeed else '--' }} km/h</div>
+                        </div>
+                    </div>
+
+                    <div class="detail-item">
+                        <i class="fas fa-compass"></i>
+                        <div>
+                            <div class="label">风向</div>
+                            <div class="value">{{ weather_data.current.winddirection if weather_data.current.winddirection else '--' }}°</div>
+                        </div>
+                    </div>
+
+                    <div class="detail-item">
+                        <i class="fas fa-sun"></i>
+                        <div>
+                            <div class="label">白天/夜晚</div>
+                            <div class="value">{{ '白天' if weather_data.current.is_day else '夜晚' }}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 7天预报 -->
+            <div class="forecast">
+                <h3><i class="fas fa-calendar-alt"></i> 7天预报</h3>
+
+                <div class="forecast-list">
+                    {% for i in range(weather_data.daily.time|length) %}
+                        {% if i < 7 %}
+                        <div class="forecast-item">
+                            <div class="forecast-date">{{ format_date(weather_data.daily.time[i]) }}</div>
+                            <div class="forecast-icon">
+                                <i class="{{ get_weather_icon(weather_data.daily.weathercode[i], True) }}"></i>
+                            </div>
+                            <div class="forecast-desc">{{ get_weather_description(weather_data.daily.weathercode[i]) }}</div>
+                            <div class="forecast-temp">
+                                <span class="temp-max">{{ weather_data.daily.temperature_2m_max[i]|int if weather_data.daily.temperature_2m_max[i] else '--' }}°</span>
+                                <span class="temp-min">{{ weather_data.daily.temperature_2m_min[i]|int if weather_data.daily.temperature_2m_min[i] else '--' }}°</span>
+                            </div>
+                        </div>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+
+                <!-- 平均温度 -->
+                {% if weather_data.average_temp %}
+                <div class="average-temp">
+                    <i class="fas fa-thermometer-half"></i>
+                    7天平均温度: {{ weather_data.average_temp|int }}°C
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- 原始数据展示（可折叠） -->
+            <div class="raw-data">
+                <h3 class="data-toggle">
+                    <i class="fas fa-database"></i> API原始数据
+                    <span class="toggle-icon">▼</span>
+                </h3>
+
+                <div class="data-content">
+                    <div class="data-info">
+                        <p><i class="fas fa-info-circle"></i> 以下是从Open-Meteo API获取的原始JSON数据</p>
+                    </div>
+
+                    <div class="json-display">
+                        <pre>{{ weather_data|tojson(indent=2) }}</pre>
+                    </div>
+                </div>
+            </div>
+        {% else %}
+            <!-- 加载状态或错误状态 -->
+            <div class="error-state">
+                <i class="fas fa-cloud-exclamation fa-3x"></i>
+                <h3>无法获取天气数据</h3>
+                <p>请检查网络连接或稍后重试</p>
+                <button class="retry-btn" onclick="location.reload()">
+                    <i class="fas fa-redo"></i> 重新加载
+                </button>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<script> </script>
+{% endblock %}
